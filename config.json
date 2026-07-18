@@ -1,0 +1,12 @@
+{
+    "engine": "local",
+    "model_path": "models/gemma-3-270m-int4.gguf",
+    "context_size": 2048,
+    "temperature": 0.7,
+    "embedding_model": "all-MiniLM-L6-v2",
+    "sqlite_path": "lumas_data/lumas.db",
+    "openai_model": "gpt-5.6",
+    "openai_base_url": "https://api.openai.com/v1",
+    "host": "127.0.0.1",
+    "port": 8765
+}

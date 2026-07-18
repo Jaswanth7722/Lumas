@@ -1,0 +1,14 @@
+Metadata-Version: 2.4
+Name: lumas
+Version: 1.0.0
+Summary: Lumas — On-Device AI Tutor
+Requires-Python: >=3.10
+Requires-Dist: fastapi>=0.139.0
+Requires-Dist: uvicorn>=0.24.0
+Requires-Dist: pydantic>=2.0.0
+Requires-Dist: python-multipart>=0.0.12
+Requires-Dist: openai>=1.0.0
+Requires-Dist: pypdf>=4.0.0
+Requires-Dist: pdfplumber>=0.10.0
+Requires-Dist: sentence-transformers>=2.2.0
+Requires-Dist: pywebview>=5.0.0

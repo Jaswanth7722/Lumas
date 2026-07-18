@@ -1,0 +1,5 @@
+nul
+test_debug.db
+.agents/
+/pytest_cache/
+lumas.egg-info/

@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Lumas — On-Device Tutor</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<!-- Toast notifications -->
+<div id="toast-container"></div>
+
+<div id="app">
+
+  <!-- Sidebar -->
+  <aside id="sidebar">
+    <div class="sidebar-header">
+      <h1 class="logo">Lumas</h1>
+      <span class="badge" id="engine-badge">local</span>
+    </div>
+
+    <nav>
+      <button class="nav-btn active" data-view="chat" onclick="switchView('chat')">
+        <span class="nav-icon">💬</span> Chat
+      </button>
+      <button class="nav-btn" data-view="documents" onclick="switchView('documents')">
+        <span class="nav-icon">📄</span> Documents
+      </button>
+      <button class="nav-btn" data-view="quizzes" onclick="switchView('quizzes')">
+        <span class="nav-icon">📝</span> Quizzes
+      </button>
+      <button class="nav-btn" data-view="settings" onclick="switchView('settings')">
+        <span class="nav-icon">⚙️</span> Settings
+      </button>
+    </nav>
+
+    <div class="sidebar-footer" id="sidebar-status">
+      <span class="status-dot" id="status-dot"></span>
+      <span id="status-text">Ready</span>
+    </div>
+  </aside>
+
+  <!-- Main -->
+  <main id="main">
+
+    <!-- ─── CHAT VIEW ─── -->
+    <div id="view-chat" class="view active">
+      <div class="view-header">
+        <h2>Chat</h2>
+        <div class="header-actions">
+          <select id="session-select" onchange="switchSession(this.value)">
+            <option value="">+ New session</option>
+          </select>
+          <button class="btn-sm" onclick="newSession()" title="New session">✚</button>
+        </div>
+      </div>
+
+      <div id="messages" class="scroll-area">
+        <div class="welcome">
+          <div class="welcome-icon">📚</div>
+          <h3>Welcome to Lumas</h3>
+          <p>Upload a PDF document and start asking questions.<br>Or just chat — Lumas will help you learn.</p>
+          <button class="btn-primary" onclick="switchView('documents')">Upload a Document</button>
+        </div>
+      </div>
+
+      <div class="input-area">
+        <div id="doc-indicator" class="doc-indicator" hidden>
+          <span>Using: <strong id="doc-name"></strong></span>
+          <button class="btn-link" onclick="clearDoc()">✕</button>
+        </div>
+        <div class="input-row">
+          <textarea id="chat-input" rows="1" placeholder="Ask a question about your document..." oninput="onChatInput(this)"></textarea>
+          <button id="send-btn" onclick="send()" disabled title="Send (Enter)">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ─── DOCUMENTS VIEW ─── -->
+    <div id="view-documents" class="view">
+      <div class="view-header">
+        <h2>Documents</h2>
+        <button class="btn-sm" onclick="document.getElementById('file-input').click()">+ Upload</button>
+      </div>
+
+      <div class="scroll-area">
+        <div id="drop-zone" class="drop-zone">
+          <div class="drop-content">
+            <span class="drop-icon">📄</span>
+            <p>Drop a PDF here or click to browse</p>
+            <button class="btn-primary" onclick="document.getElementById('file-input').click()">Choose PDF</button>
+          </div>
+          <input type="file" id="file-input" accept=".pdf" hidden onchange="uploadFile(this.files[0])">
+        </div>
+
+        <div id="documents-list">
+          <!-- Documents rendered here by JS -->
+        </div>
+      </div>
+    </div>
+
+    <!-- ─── QUIZZES VIEW ─── -->
+    <div id="view-quizzes" class="view">
+      <div class="view-header">
+        <h2>Quizzes</h2>
+      </div>
+
+      <div class="scroll-area" id="quiz-scroll">
+        <div id="quiz-content">
+          <div class="empty-state">
+            <div class="empty-icon">📝</div>
+            <h3>No quizzes yet</h3>
+            <p>Upload a document and start chatting, then ask Lumas to generate a quiz.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ─── SETTINGS VIEW ─── -->
+    <div id="view-settings" class="view">
+      <div class="view-header">
+        <h2>Settings</h2>
+      </div>
+
+      <div class="scroll-area">
+        <div class="settings-form">
+          <div class="setting-group">
+            <label for="engine-select">Engine</label>
+            <select id="engine-select" onchange="saveSetting('engine', this.value)">
+              <option value="local">Local (llama.cpp)</option>
+              <option value="online">Online (OpenAI)</option>
+            </select>
+          </div>
+
+          <div class="setting-group">
+            <label for="temp-range">Temperature: <span id="temp-val">0.7</span></label>
+            <input type="range" id="temp-range" min="0" max="2" step="0.1" value="0.7"
+                   oninput="document.getElementById('temp-val').textContent=this.value; saveSettingDelayed('temperature', this.value)">
+          </div>
+
+          <div class="setting-group">
+            <label for="ctx-size">Context Size</label>
+            <select id="ctx-size" onchange="saveSetting('context_size', this.value)">
+              <option value="1024">1,024</option>
+              <option value="2048" selected>2,048</option>
+              <option value="4096">4,096</option>
+              <option value="8192">8,192</option>
+            </select>
+          </div>
+
+          <div class="setting-group">
+            <label for="model-path">Model Path (local only)</label>
+            <input type="text" id="model-path" placeholder="path/to/model.gguf" onchange="saveSetting('model_path', this.value)">
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<!-- Loading overlay -->
+<div id="loading" class="loading-overlay" hidden>
+  <div class="spinner"></div>
+  <span id="loading-text">Processing...</span>
+</div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

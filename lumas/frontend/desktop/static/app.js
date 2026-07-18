@@ -2,7 +2,10 @@
    Lumas Desktop — Main Application
    ═══════════════════════════════════════════════════════════ */
 
-const API = '/api'
+// Android exposes the same UI through a WebView.  Keep the browser default
+// while allowing the native shell to point at the desktop API or a LAN host.
+const NATIVE_LOCAL = window.AndroidConfig?.isLocalMode?.() === true
+const API = window.AndroidConfig?.apiBase?.() || window.LUMAS_API_BASE || '/api'
 let sid = null       // current session ID
 let docId = null     // active document ID
 let docName = ''     // active document name
@@ -11,9 +14,16 @@ let settingsTimer = null
 // ── Init ─────────────────────────────────────────────────
 
 document.addEventListener('DOMContentLoaded', () => {
-  loadSessions()
-  loadDocuments()
-  loadSettings()
+  if (NATIVE_LOCAL) {
+    sid = 'android-local'
+    document.getElementById('engine-badge').textContent = 'local'
+    setStatus('Offline tutor ready')
+    document.querySelectorAll('[data-view="documents"], [data-view="quizzes"]').forEach(el => { el.hidden = true })
+  } else {
+    loadSessions()
+    loadDocuments()
+    loadSettings()
+  }
   setupDragDrop()
   setupChatInput()
 })
@@ -76,6 +86,7 @@ function esc(s) {
 // ── View Switching ───────────────────────────────────────
 
 function switchView(view) {
+  if (NATIVE_LOCAL && (view === 'documents' || view === 'quizzes')) return
   document.querySelectorAll('.view').forEach(el => el.classList.remove('active'))
   document.querySelectorAll('.nav-btn').forEach(el => el.classList.remove('active'))
   document.getElementById('view-' + view)?.classList.add('active')
@@ -157,7 +168,9 @@ async function send() {
   const query = el.value.trim()
   if (!query) return
 
-  if (!sid) {
+  if (NATIVE_LOCAL) {
+    sid = sid || 'android-local'
+  } else if (!sid) {
     try {
       const s = await api('POST', '/sessions', {})
       sid = s.id
@@ -182,11 +195,14 @@ async function send() {
 
   setStatus('Thinking…', true)
   try {
-    const r = await api('POST', '/chat', {
-      session_id: sid,
-      query: query,
-      document_id: docId || undefined
-    })
+    const r = NATIVE_LOCAL
+      ? JSON.parse(window.AndroidConfig.chat(query))
+      : await api('POST', '/chat', {
+          session_id: sid,
+          query: query,
+          document_id: docId || undefined
+        })
+    if (!r.ok) throw new Error(r.error || 'Local tutor request failed')
     document.getElementById('typing-indicator')?.remove()
     appendMessage('assistant', r.response)
     setStatus('Ready')
@@ -212,7 +228,6 @@ function appendMessage(role, text) {
 
 function formatMessage(text) {
   let h = esc(text)
-    .replace(/&amp;#xFE0F;/g, '')
   // Code blocks first
   h = h.replace(/```(\w*)\n([\s\S]*?)```/g, '<pre><code>$2</code></pre>')
   // Inline code
@@ -267,6 +282,10 @@ function setupDragDrop() {
 }
 
 async function uploadFile(file) {
+  if (NATIVE_LOCAL) {
+    toast('PDF retrieval is available when connected to the Lumas API', 'info')
+    return
+  }
   if (!file || !file.name.toLowerCase().endsWith('.pdf')) {
     toast('Please upload a PDF file.', 'error')
     return
@@ -313,6 +332,8 @@ function addDocumentCard(doc) {
 
   const card = document.createElement('div')
   card.className = 'doc-card'
+  card.dataset.docId = doc.id
+  card.dataset.docTitle = doc.title
   card.innerHTML = `
     <div class="doc-card-info">
       <span class="doc-card-icon">📄</span>
@@ -322,11 +343,25 @@ function addDocumentCard(doc) {
       </div>
     </div>
     <div class="doc-card-actions">
-      <button onclick="useDoc('${doc.id}', '${esc(doc.title)}')">Use</button>
-      <button class="btn-danger" onclick="deleteDoc('${doc.id}')">Delete</button>
+      <button class="btn-use">Use</button>
+      <button class="btn-danger btn-delete">Delete</button>
     </div>`
   list.appendChild(card)
 }
+
+// Event delegation for document card actions
+// Uses data attributes instead of inline onclick to avoid XSS vectors
+document.getElementById('documents-list').addEventListener('click', e => {
+  const card = e.target.closest('.doc-card')
+  if (!card) return
+  const id = card.dataset.docId
+  const title = card.dataset.docTitle
+  if (e.target.classList.contains('btn-use')) {
+    useDoc(id, title)
+  } else if (e.target.classList.contains('btn-delete')) {
+    deleteDoc(id)
+  }
+})
 
 function useDoc(id, title) {
   setDoc(id, title)

@@ -60,13 +60,18 @@ class RetrievalService:
         if not chunks:
             return []
 
-        # Try embedding search first
-        try:
-            self._ensure_embeddings()
-            if self.embedding_provider is not None:
-                return self._embedding_retrieve(query, chunks, top_k)
-        except Exception as e:
-            logger.warning("Embedding search failed, falling back to keyword: %s", e)
+        # Only initialize the desktop embedding model when this corpus already
+        # has vectors.  A fresh install (and Android) should use the cheap
+        # keyword path immediately instead of downloading/loading a model just
+        # to discover that there is nothing to compare against.
+        has_embeddings = any(self.storage.get_embedding(chunk["id"]) for chunk in chunks)
+        if has_embeddings or self.embedding_provider is not None:
+            try:
+                self._ensure_embeddings()
+                if self.embedding_provider is not None:
+                    return self._embedding_retrieve(query, chunks, top_k)
+            except Exception as e:
+                logger.warning("Embedding search failed, falling back to keyword: %s", e)
 
         # Keyword fallback
         return self._keyword_retrieve(query, chunks, top_k)

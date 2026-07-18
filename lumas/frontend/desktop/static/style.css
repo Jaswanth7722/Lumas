@@ -276,14 +276,13 @@ body{
 }
 .setting-group input:focus,.setting-group select:focus{border-color:var(--accent)}
 .setting-group input[type=range]{width:100%;margin-top:4px;accent-color:var(--accent)}
-.setting-group input[type=range]+label{display:inline;margin-left:6px;font-weight:400}
-
 /* ── Loading Overlay ───────────────────────────────────── */
 .loading-overlay{
   position:fixed;inset:0;background:rgba(255,255,255,0.85);
   display:flex;flex-direction:column;align-items:center;justify-content:center;
   gap:14px;z-index:9999;
 }
+.loading-overlay[hidden]{display:none}
 .spinner{
   width:32px;height:32px;border:3px solid var(--border);
   border-top-color:var(--accent);border-radius:50%;

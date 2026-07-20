@@ -3,3 +3,9 @@ test_debug.db
 .agents/
 /pytest_cache/
 lumas.egg-info/
+
+models/
+Lumas_data/
+.hf_cache/
+.pytest_cache/
+*.db

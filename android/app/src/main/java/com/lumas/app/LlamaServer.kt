@@ -4,7 +4,6 @@ import android.content.Context
 import android.util.Log
 import java.io.File
 import java.io.FileOutputStream
-import java.util.concurrent.Executors
 
 /**
  * Kotlin wrapper around the llama.cpp native server JNI bridge.
@@ -23,7 +22,6 @@ class LlamaServer(private val context: Context) {
         private const val MODEL_DIR = "models"
     }
 
-    private val executor = Executors.newSingleThreadExecutor()
     private var modelPath: String? = null
 
     /**
@@ -117,25 +115,6 @@ class LlamaServer(private val context: Context) {
             ok
         } catch (e: Exception) {
             false
-        }
-    }
-
-    /**
-     * Async start — fires the native server in background and calls
-     * onReady/onError when done.
-     */
-    fun startAsync(onReady: (Int) -> Unit, onError: (String) -> Unit) {
-        executor.submit {
-            try {
-                val port = start()
-                if (port > 0) {
-                    onReady(port)
-                } else {
-                    onError("Failed to start llama.cpp server")
-                }
-            } catch (e: Exception) {
-                onError(e.message ?: "Unknown error")
-            }
         }
     }
 

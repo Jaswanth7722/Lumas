@@ -16,7 +16,6 @@ $ErrorActionPreference = "Stop"
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
 $AndroidDir = $PSScriptRoot
 $LlamaCppDir = Join-Path $PSScriptRoot ".." "llamacpp"
-$ModelDir = Join-Path $AndroidDir "app" "src" "main" "assets" "models"
 
 Write-Host "=== Lumas Android Setup ===" -ForegroundColor Cyan
 Write-Host ""

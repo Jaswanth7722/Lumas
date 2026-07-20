@@ -28,7 +28,6 @@ android {
 
     buildFeatures {
         buildConfig = true
-        prefab = true
     }
 
     // Assets: merge the Android frontend + the shared JS modules
@@ -70,12 +69,9 @@ val copySharedAssets by tasks.registering(Copy::class) {
     into("src/main/assets/shared")
 }
 
-// Hook into the asset merge task
-tasks.whenTaskAdded {
-    if (name.contains("merge") && name.contains("Assets")) {
-        dependsOn(copySharedAssets)
-    }
-}
+// Hook into the asset merge task (all variants: mergeDebugAssets, mergeReleaseAssets, etc.)
+tasks.matching { it.name.startsWith("merge") && it.name.endsWith("Assets") }
+    .configureEach { dependsOn(copySharedAssets) }
 
 dependencies {
     implementation("androidx.webkit:webkit:1.12.1")

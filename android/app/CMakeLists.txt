@@ -31,7 +31,7 @@ set(LLAMACPP_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../llamacpp")
 
 # ── Build llama.cpp as a static library ───────────────────
 # Only build the core library + server, skip examples/tests
-if(EXISTS "${LLAMACPP_DIR}/ggml.c")
+if(EXISTS "${LLAMACPP_DIR}/CMakeLists.txt")
     add_subdirectory(${LLAMACPP_DIR} llamacpp_build EXCLUDE_FROM_ALL)
 
     # Only build common and server targets
@@ -52,7 +52,7 @@ target_include_directories(lumas_server PRIVATE
     ${LLAMACPP_DIR}/ggml/include
 )
 
-if(EXISTS "${LLAMACPP_DIR}/ggml.c")
+if(EXISTS "${LLAMACPP_DIR}/CMakeLists.txt")
     target_link_libraries(lumas_server PRIVATE
         llama
         common

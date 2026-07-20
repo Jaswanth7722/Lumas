@@ -41,10 +41,14 @@
     </div>
   </aside>
 
-  <!-- Main -->
-  <main id="main">
+  <!-- Network status bar (shown when offline) -->
+  <div id="network-status" class="offline" hidden>
+    <span>⚠️</span>
+    <span>Network connection lost — some features may be unavailable</span>
+  </div>
 
-    <!-- ─── CHAT VIEW ─── -->
+  <!-- Main -->
+  <main id="main">      <!-- ─── CHAT VIEW ─── -->
     <div id="view-chat" class="view active">
       <div class="view-header">
         <h2>Chat</h2>
@@ -53,6 +57,7 @@
             <option value="">+ New session</option>
           </select>
           <button class="btn-sm" onclick="newSession()" title="New session">✚</button>
+          <button class="btn-sm btn-danger-outline" id="btn-delete-session" onclick="deleteSession()" title="Delete current session" hidden>🗑</button>
         </div>
       </div>
 
@@ -73,6 +78,7 @@
         <div class="input-row">
           <textarea id="chat-input" rows="1" placeholder="Ask a question about your document..." oninput="onChatInput(this)"></textarea>
           <button id="send-btn" onclick="send()" disabled title="Send (Enter)">
+            <span class="kbd-hint">Enter</span>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
           </button>
         </div>
@@ -106,6 +112,11 @@
     <div id="view-quizzes" class="view">
       <div class="view-header">
         <h2>Quizzes</h2>
+        <div class="header-actions">
+          <button class="btn-sm" id="btn-gen-quiz" onclick="generateQuiz()" title="Generate a quiz from active document">
+            ✨ Generate
+          </button>
+        </div>
       </div>
 
       <div class="scroll-area" id="quiz-scroll">
@@ -113,7 +124,7 @@
           <div class="empty-state">
             <div class="empty-icon">📝</div>
             <h3>No quizzes yet</h3>
-            <p>Upload a document and start chatting, then ask Lumas to generate a quiz.</p>
+            <p>Select a document and click <strong>Generate</strong> to create a quiz, or ask Lumas to make one in chat.</p>
           </div>
         </div>
       </div>
@@ -166,6 +177,18 @@
 <div id="loading" class="loading-overlay" hidden>
   <div class="spinner"></div>
   <span id="loading-text">Processing...</span>
+</div>
+
+<!-- Confirm dialog modal -->
+<div id="confirm-modal" class="modal-overlay" hidden>
+  <div class="modal-box">
+    <h3 id="confirm-title">Confirm</h3>
+    <p id="confirm-message">Are you sure?</p>
+    <div class="modal-actions">
+      <button class="btn-sm" onclick="closeConfirm()">Cancel</button>
+      <button class="btn-sm btn-danger" id="confirm-yes" onclick="confirmAction()">Delete</button>
+    </div>
+  </div>
 </div>
 
 <script src="static/app.js"></script>

@@ -1,6 +1,6 @@
 {
     "engine": "local",
-    "model_path": "models/gemma-3-270m-int4.gguf",
+    "model_path": "models/gemma-3-270m-it.Q4_K_M.gguf",
     "context_size": 2048,
     "temperature": 0.7,
     "embedding_model": "all-MiniLM-L6-v2",

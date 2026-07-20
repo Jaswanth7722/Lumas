@@ -51,7 +51,6 @@ class MainActivity : AppCompatActivity() {
             domStorageEnabled = true
             allowFileAccess = false
             allowContentAccess = false
-            mediaPlaybackRequiresUserGesture = false
         }
 
         // Expose server status to JavaScript

@@ -23,9 +23,11 @@ document.addEventListener('DOMContentLoaded', () => {
     loadSessions()
     loadDocuments()
     loadSettings()
+    setupNetworkMonitor()
   }
   setupDragDrop()
   setupChatInput()
+  setupCopyButtons()
 })
 
 // ── Toast Notifications ──────────────────────────────────
@@ -75,6 +77,22 @@ function setStatus(text, ok = true) {
   if (!ok) dot.classList.add('error')
 }
 
+// ── Network Monitor ──────────────────────────────────────
+
+function setupNetworkMonitor() {
+  const statusBar = document.getElementById('network-status')
+  function update() {
+    if (!navigator.onLine) {
+      statusBar.classList.add('offline')
+    } else {
+      statusBar.classList.remove('offline')
+    }
+  }
+  window.addEventListener('online', update)
+  window.addEventListener('offline', update)
+  update()
+}
+
 // ── Escaping ─────────────────────────────────────────────
 
 function esc(s) {
@@ -92,6 +110,7 @@ function switchView(view) {
   document.getElementById('view-' + view)?.classList.add('active')
   document.querySelector(`.nav-btn[data-view="${view}"]`)?.classList.add('active')
   if (view === 'quizzes') loadQuizResults()
+  if (view === 'documents') loadDocuments()
 }
 
 // ── Sessions ─────────────────────────────────────────────
@@ -123,6 +142,7 @@ async function newSession() {
       '<div class="welcome"><div class="welcome-icon">💬</div><h3>New Session</h3><p>Ask a question to get started.</p></div>'
     loadSessions()
     document.getElementById('engine-badge').textContent = s.engine_used
+    document.getElementById('btn-delete-session').hidden = false
     setStatus('Ready')
     toast('New session created', 'success', 2000)
   } catch (e) {
@@ -136,17 +156,74 @@ async function switchSession(id) {
     sid = null
     document.getElementById('messages').innerHTML =
       '<div class="welcome"><div class="welcome-icon">📚</div><h3>Welcome to Lumas</h3><p>Upload a PDF and start asking questions.</p></div>'
+    document.getElementById('btn-delete-session').hidden = true
     return
   }
   sid = id
+  document.getElementById('btn-delete-session').hidden = false
   try {
-    const msgs = await api('GET', '/sessions/' + sid + '/messages')
+    setStatus('Loading session…')
+    const [msgs, s] = await Promise.all([
+      api('GET', '/sessions/' + sid + '/messages'),
+      api('GET', '/sessions/' + sid)
+    ])
     renderMessages(msgs)
-    const s = await api('GET', '/sessions/' + sid)
     document.getElementById('engine-badge').textContent = s.engine_used
+    setStatus('Ready')
   } catch (e) {
     toast('Failed to load session: ' + e.message, 'error')
+    setStatus('Error', false)
   }
+}
+
+// ── Confirm Dialog ───────────────────────────────────────-
+
+let _confirmCallback = null
+
+function confirm(title, message, onYes, yesLabel) {
+  document.getElementById('confirm-title').textContent = title
+  document.getElementById('confirm-message').textContent = message
+  document.getElementById('confirm-yes').textContent = yesLabel || 'Delete'
+  document.getElementById('confirm-modal').hidden = false
+  _confirmCallback = onYes
+}
+
+function closeConfirm() {
+  document.getElementById('confirm-modal').hidden = true
+  _confirmCallback = null
+}
+
+function confirmAction() {
+  document.getElementById('confirm-modal').hidden = true
+  if (_confirmCallback) _confirmCallback()
+  _confirmCallback = null
+}
+
+// Close modal on overlay click
+document.getElementById('confirm-modal').addEventListener('click', e => {
+  if (e.target === e.currentTarget) closeConfirm()
+})
+
+async function deleteSession() {
+  if (!sid) return
+  confirm(
+    'Delete Session',
+    'This will permanently delete this session and all its messages and quizzes.',
+    async () => {
+      try {
+        await api('DELETE', '/sessions/' + sid)
+        sid = null
+        document.getElementById('messages').innerHTML =
+          '<div class="welcome"><div class="welcome-icon">📚</div><h3>Session deleted</h3><p>Start a new session to begin.</p></div>'
+        document.getElementById('btn-delete-session').hidden = true
+        loadSessions()
+        toast('Session deleted', 'info', 2000)
+      } catch (e) {
+        toast('Failed to delete session: ' + e.message, 'error')
+      }
+    },
+    'Delete'
+  )
 }
 
 // ── Chat ─────────────────────────────────────────────────
@@ -166,7 +243,12 @@ function onChatInput(el) {
 async function send() {
   const el = document.getElementById('chat-input')
   const query = el.value.trim()
-  if (!query) return
+  const sendBtn = document.getElementById('send-btn')
+  if (!query || sendBtn.disabled) return
+
+  // Disable input while generating
+  sendBtn.disabled = true
+  el.disabled = true
 
   if (NATIVE_LOCAL) {
     sid = sid || 'android-local'
@@ -174,9 +256,13 @@ async function send() {
     try {
       const s = await api('POST', '/sessions', {})
       sid = s.id
+      document.getElementById('btn-delete-session').hidden = false
       loadSessions()
     } catch (e) {
       toast('Create a session first', 'error')
+      sendBtn.disabled = false
+      el.disabled = false
+      el.focus()
       return
     }
   }
@@ -186,12 +272,7 @@ async function send() {
   onChatInput(el)
 
   // Show typing indicator
-  const typingEl = document.createElement('div')
-  typingEl.className = 'typing-indicator'
-  typingEl.id = 'typing-indicator'
-  typingEl.innerHTML = '<span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span>'
-  document.getElementById('messages').appendChild(typingEl)
-  document.getElementById('messages').scrollTop = document.getElementById('messages').scrollHeight
+  showTypingIndicator()
 
   setStatus('Thinking…', true)
   try {
@@ -203,14 +284,37 @@ async function send() {
           document_id: docId || undefined
         })
     if (!r.ok) throw new Error(r.error || 'Local tutor request failed')
-    document.getElementById('typing-indicator')?.remove()
+    hideTypingIndicator()
     appendMessage('assistant', r.response)
     setStatus('Ready')
   } catch (e) {
-    document.getElementById('typing-indicator')?.remove()
-    appendMessage('assistant', '⚠️ ' + e.message)
+    hideTypingIndicator()
+    const errMsg = e.message.includes('Failed to fetch') || e.message.includes('NetworkError')
+      ? 'Cannot reach the server. Check your connection and try again.'
+      : e.message
+    appendMessage('assistant', '⚠️ ' + errMsg)
     setStatus('Error', false)
+  } finally {
+    sendBtn.disabled = false
+    el.disabled = false
+    el.focus()
   }
+}
+
+function showTypingIndicator() {
+  const container = document.getElementById('messages')
+  if (document.getElementById('typing-indicator')) return
+  const typingEl = document.createElement('div')
+  typingEl.className = 'typing-indicator'
+  typingEl.id = 'typing-indicator'
+  typingEl.innerHTML = '<span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span>'
+  container.appendChild(typingEl)
+  container.scrollTop = container.scrollHeight
+}
+
+function hideTypingIndicator() {
+  const el = document.getElementById('typing-indicator')
+  if (el) el.remove()
 }
 
 function appendMessage(role, text) {
@@ -221,15 +325,25 @@ function appendMessage(role, text) {
 
   const div = document.createElement('div')
   div.className = 'msg ' + role
-  div.innerHTML = formatMessage(text)
+  div.innerHTML = formatMessage(text) + '<div class="msg-timestamp">' + formatTimestamp(Date.now()) + '</div>'
   container.appendChild(div)
   container.scrollTop = container.scrollHeight
+  return div
 }
 
 function formatMessage(text) {
-  let h = esc(text)
-  // Code blocks first
-  h = h.replace(/```(\w*)\n([\s\S]*?)```/g, '<pre><code>$2</code></pre>')
+  // Process code blocks BEFORE HTML escaping to avoid double-escape
+  // Extract code blocks, replace with placeholders, escape text, then restore blocks
+  const codeBlocks = []
+  let h = text.replace(/```(\w*)\n([\s\S]*?)```/g, (match, lang, code) => {
+    const idx = codeBlocks.length
+    codeBlocks.push('<pre><code>' + esc(code) + '</code><button class="copy-btn" onclick="copyCode(this)">📋 Copy</button></pre>')
+    return '%%CODEBLOCK_' + idx + '%%'
+  })
+  // Now escape the rest
+  h = esc(h)
+  // Restore code block placeholders (which are already safely escaped)
+  h = h.replace(/%%CODEBLOCK_(\d+)%%/g, (match, idx) => codeBlocks[parseInt(idx)])
   // Inline code
   h = h.replace(/`([^`]+)`/g, '<code>$1</code>')
   // Bold
@@ -238,6 +352,31 @@ function formatMessage(text) {
   h = h.replace(/\n\n/g, '</p><p>')
   h = h.replace(/\n/g, '<br>')
   return '<p>' + h + '</p>'
+}
+
+function formatTimestamp(ts) {
+  const d = new Date(ts)
+  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+}
+
+function copyCode(btn) {
+  const code = btn.parentElement.querySelector('code')
+  if (!code) return
+  const text = code.textContent
+  navigator.clipboard.writeText(text).then(() => {
+    btn.textContent = '✓ Copied!'
+    setTimeout(() => { btn.textContent = '📋 Copy' }, 2000)
+  }).catch(() => {
+    btn.textContent = 'Failed'
+  })
+}
+
+function setupCopyButtons() {
+  // Delegate copy button clicks for dynamically loaded messages
+  document.getElementById('messages').addEventListener('click', e => {
+    const btn = e.target.closest('.copy-btn')
+    if (btn) copyCode(btn)
+  })
 }
 
 function renderMessages(msgs) {
@@ -370,17 +509,50 @@ function useDoc(id, title) {
 }
 
 async function deleteDoc(id) {
-  try {
-    await api('DELETE', '/documents/' + id)
-    loadDocuments()
-    if (docId === id) clearDoc()
-    toast('Document deleted', 'info', 2000)
-  } catch (e) {
-    toast('Delete failed: ' + e.message, 'error')
-  }
+  confirm(
+    'Delete Document',
+    'This will permanently delete this document and all its chunks. This cannot be undone.',
+    async () => {
+      try {
+        await api('DELETE', '/documents/' + id)
+        loadDocuments()
+        if (docId === id) clearDoc()
+        toast('Document deleted', 'info', 2000)
+      } catch (e) {
+        toast('Delete failed: ' + e.message, 'error')
+      }
+    },
+    'Delete'
+  )
 }
 
 // ── Quizzes ─────────────────────────────────────────────
+
+async function generateQuiz() {
+  if (!docId) {
+    toast('Select a document first (Documents view → Use)', 'warning')
+    return
+  }
+  if (!sid) {
+    toast('Start a chat session first', 'warning')
+    return
+  }
+
+  loading(true, 'Generating quiz…')
+  try {
+    const r = await api('POST', '/quizzes/generate', {
+      session_id: sid,
+      chunk_id: docId,
+      num_questions: 3
+    })
+    toast('Quiz generated! Check the Quizzes view.', 'success', 3000)
+    switchView('quizzes')
+  } catch (e) {
+    toast('Failed to generate quiz: ' + e.message, 'error')
+  } finally {
+    loading(false)
+  }
+}
 
 async function loadQuizResults() {
   if (!sid) {
@@ -458,12 +630,21 @@ async function loadSettings() {
   }
 }
 
+const saveCache = {}
 async function saveSetting(key, value) {
+  // Debounce rapid saves from range input
+  const now = Date.now()
+  if (saveCache[key] && now - saveCache[key] < 100) return
+  saveCache[key] = now
+
   try {
     await api('PUT', '/settings/' + key, { value: String(value) })
     if (key === 'engine') {
       document.getElementById('engine-badge').textContent = value
       toast('Engine: ' + value, 'info', 2000)
+    }
+    if (key === 'temperature') {
+      toast('Temperature: ' + value, 'info', 1500)
     }
   } catch (e) {
     toast('Failed to save setting: ' + e.message, 'error')

@@ -12,6 +12,7 @@
 #include <android/log.h>
 #include <pthread.h>
 #include <atomic>
+#include <cstdlib>
 #include <cstring>
 #include <string>
 
@@ -41,14 +42,13 @@ extern "C" {
 // ── Global state ─────────────────────────────────────────
 static pthread_t g_server_thread = 0;
 static std::atomic<bool> g_server_running{false};
-static std::atomic<bool> g_server_should_stop{false};
 
 /**
  * Server thread function.
  * Loads the model, starts the HTTP server, blocks until shutdown.
  */
 static void* server_thread_func(void* arg) {
-    const char* model_path = static_cast<const char*>(arg);
+    char* model_path = static_cast<char*>(arg);
     if (!model_path) {
         LOGE("No model path provided to server thread");
         g_server_running = false;
@@ -61,13 +61,20 @@ static void* server_thread_func(void* arg) {
     void* ctx = llama_init_from_file(model_path, 2048);
     if (!ctx) {
         LOGE("Failed to load model: %s", model_path);
+        free(model_path);
         g_server_running = false;
         return nullptr;
     }
 
+    // Model path copied — free now since llama_init_from_file has the model loaded
+    free(model_path);
+
     LOGI("Model loaded successfully. Starting HTTP server on port 8080...");
 
     // Start the HTTP server (blocks until stopped)
+    // Note: nativeStopServer is currently a no-op because server_start() blocks.
+    // In a future iteration, the llama.cpp server_start callback mechanism or
+    // a signal-based approach can be used for graceful shutdown.
     g_server_running = true;
     int result = server_start(ctx, 8080);
 
@@ -78,7 +85,6 @@ static void* server_thread_func(void* arg) {
     // Cleanup
     llama_free(ctx);
     g_server_running = false;
-    g_server_should_stop = false;
 
     LOGI("Server stopped");
     return nullptr;
@@ -107,8 +113,6 @@ Java_com_lumas_app_LlamaServer_nativeStartServer(
     char* model_path_copy = strdup(model_path);
     env->ReleaseStringUTFChars(model_path_jstr, model_path);
 
-    g_server_should_stop = false;
-
     if (pthread_create(&g_server_thread, nullptr, server_thread_func, model_path_copy) != 0) {
         LOGE("Failed to create server thread");
         free(model_path_copy);
@@ -133,7 +137,9 @@ Java_com_lumas_app_LlamaServer_nativeStopServer(
     }
 
     LOGI("Signaling server to stop...");
-    g_server_should_stop = true;
+    // Note: server_start() is a blocking call, so setting this flag
+    // is informational only. The server thread will terminate when
+    // server_start() returns (e.g., on process shutdown).
     g_server_running = false;
 }
 

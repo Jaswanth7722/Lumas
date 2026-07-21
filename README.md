@@ -15,6 +15,9 @@ quizzes, and persists the learner session in SQLite.
 - **Optional mode:** Connected OpenAI-compatible inference when explicitly
   configured by the user
 
+  ## Codex and gpt-5.6 usage
+  - Mostly i used luna gpt 5.6 with high and extra high efforts and its was very good at debugging, writing code and thinking and it find errors and fix them easily, and luna write most code in codebase than terra. Terra gpt 5.6 is exceptional and best at design and creating plans, implemenation structure and very good at planning. Where i used terra for build the plans, initial codebase and continued with Luna 
+
 ## What the demo proves
 
 1. Launch Lumas and create a study session.

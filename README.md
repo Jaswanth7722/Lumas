@@ -95,7 +95,7 @@ keyword retriever instead of making a network request.
 From the repository root:
 
 ```powershell
-python -m lumas.backend.main
+python main.py
 ```
 
 For browser-based development instead of the pywebview window:
@@ -106,25 +106,6 @@ python -m lumas.backend.main --server
 
 Then open <http://127.0.0.1:8765/>.
 
-## Windows release
-
-Build the portable desktop bundle from PowerShell:
-
-```powershell
-./build_release.ps1
-```
-
-The executable is written to:
-
-```text
-release/Lumas/Lumas.exe
-```
-
-The standard release bundles the 800 MB GGUF beside the executable, so it can
-run without firewall or network access. Open Settings → Install model to repair
-or replace the local model. Use `./build_release.ps1 -ModelFree` only when you
-want a smaller download-on-demand build. Run `Lumas.exe --server` for a headless
-API smoke test.
 
 ## Project structure
 

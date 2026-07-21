@@ -51,7 +51,7 @@ class ConversationService:
         # 2. Retrieve relevant context
         chunks = self.retrieval.retrieve(
             query=query,
-            top_k=5,
+            top_k=4,
             document_id=document_id,
         )
         context_chunks = [c["content"] for c in chunks]
@@ -61,10 +61,12 @@ class ConversationService:
 
         # 4. Build prompt
         engine = self.engine_manager.get_engine()
-        messages = self.prompt_builder.build_conversation_prompt(
+        messages = self.prompt_builder.build_chat_messages(
             query=query,
             context_chunks=context_chunks,
-            conversation_history=history[:-1],  # Exclude the current query
+            history=history[:-1],  # Exclude the current query
+            context_window=getattr(self.engine_manager.settings, "context_size", 2048),
+            max_response_tokens=512,
         )
 
         # 5. Generate response
@@ -73,7 +75,10 @@ class ConversationService:
             temperature=temperature,
         )
 
-        # 6. Store assistant response
+        # 6. Strip any leaked special tokens from response
+        response = PromptBuilder.strip_special_tokens(response)
+
+        # 7. Store assistant response
         self.storage.add_message(session_id, "assistant", response)
 
         logger.info(

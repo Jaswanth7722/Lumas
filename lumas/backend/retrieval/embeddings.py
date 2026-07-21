@@ -1,10 +1,4 @@
-"""EmbeddingProvider — abstract interface for generating embeddings.
-
-Desktop: uses sentence-transformers (all-MiniLM-L6-v2).
-Android: keyword/substring fallback (no on-device embedder this week).
-
-The RetrievalService doesn't know which strategy is behind this interface.
-"""
+"""Embedding provider interface and the desktop MiniLM implementation."""
 
 from __future__ import annotations
 
@@ -45,8 +39,14 @@ class MiniLMEmbedding(EmbeddingProvider):
             return
         try:
             from sentence_transformers import SentenceTransformer
-            logger.info("Loading embedding model: %s", self.model_name)
-            self._model = SentenceTransformer(self.model_name)
+            logger.info("Loading local embedding model: %s", self.model_name)
+            # Lumas is offline-first.  Never block a tutor request with
+            # Hugging Face network retries; a missing local model falls back
+            # immediately to deterministic lexical retrieval.
+            self._model = SentenceTransformer(
+                self.model_name,
+                local_files_only=True,
+            )
         except ImportError:
             logger.error(
                 "sentence-transformers not installed. Install with: pip install sentence-transformers"

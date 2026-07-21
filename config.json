@@ -1,12 +1,13 @@
 {
-    "engine": "local",
-    "model_path": "models/gemma-3-270m-it.Q4_K_M.gguf",
-    "context_size": 2048,
-    "temperature": 0.7,
-    "embedding_model": "all-MiniLM-L6-v2",
-    "sqlite_path": "lumas_data/lumas.db",
-    "openai_model": "gpt-5.6",
-    "openai_base_url": "https://api.openai.com/v1",
-    "host": "127.0.0.1",
-    "port": 8765
+  "engine": "local",
+  "model_path": "models/gemma-3-1b-it-Q4_K_M.gguf",
+  "context_size": 2048,
+  "temperature": 0.7,
+  "embedding_model": "all-MiniLM-L6-v2",
+  "sqlite_path": "lumas_data/lumas.db",
+  "openai_model": "gpt-5.6",
+  "openai_base_url": "https://api.openai.com/v1",
+  "host": "127.0.0.1",
+  "port": 8765,
+  "model_url": "https://huggingface.co/unsloth/gemma-3-1b-it-GGUF/resolve/main/gemma-3-1b-it-Q4_K_M.gguf?download=true"
 }

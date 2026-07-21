@@ -1,18 +1,15 @@
-"""LocalEngine — uses llama-cpp-python for local inference via llama.cpp.
-
-Designed for both desktop (llama-cpp-python Python bindings) and Android
-(HTTP endpoint exposed by llama.cpp on-device). On desktop, Python bindings
-are used directly. On Android, it calls the local HTTP server instead.
-"""
+"""Desktop local inference through llama-cpp-python and a GGUF model."""
 
 from __future__ import annotations
 
-import json
 import logging
+import sys
 import time
+from pathlib import Path
 from typing import Optional
 
 from .base import Engine
+from ..models.manager import ModelManager
 
 logger = logging.getLogger(__name__)
 
@@ -25,19 +22,33 @@ class LocalEngine(Engine):
         model_path: str,
         context_size: int = 2048,
         temperature: float = 0.7,
-        use_http: bool = False,
-        http_url: str = "http://localhost:8080",
+        model_manager: Optional[ModelManager] = None,
     ):
-        self.model_path = model_path
+        path = Path(model_path).expanduser()
+        if not path.is_absolute():
+            if getattr(sys, "frozen", False):
+                project_path = Path(sys.executable).resolve().parent / path
+            else:
+                project_path = Path(__file__).resolve().parents[3] / path
+            if project_path.exists():
+                path = project_path
+        self.model_path = str(path)
         self.context_size = context_size
         self._temperature = temperature
-        self.use_http = use_http
-        self.http_url = http_url.rstrip("/")
+        self.model_manager = model_manager
         self._model = None
 
     def _lazy_load(self):
-        if self._model is not None or self.use_http:
+        if self._model is not None:
             return
+        if not self.model_path:
+            raise FileNotFoundError("Local model path is not configured")
+        if not Path(self.model_path).is_file() and self.model_manager is not None:
+            logger.info("Local model is missing; starting in-app installation")
+            self.model_manager.download_blocking()
+            self.model_path = str(self.model_manager.path)
+        if not Path(self.model_path).is_file():
+            raise FileNotFoundError(f"Local model not found: {self.model_path}")
         try:
             from llama_cpp import Llama
             logger.info("Loading local model from %s", self.model_path)
@@ -53,23 +64,21 @@ class LocalEngine(Engine):
             )
             raise
 
-    def _call_http(self, prompt: str, temperature: float, max_tokens: int) -> str:
-        """Call llama.cpp's HTTP completion endpoint (Android)."""
-        import urllib.request
-        data = json.dumps({
-            "prompt": prompt,
-            "temperature": temperature,
-            "n_predict": max_tokens,
-            "stop": ["</s>", "<|im_end|>"],
-        }).encode()
-        req = urllib.request.Request(
-            f"{self.http_url}/completion",
-            data=data,
-            headers={"Content-Type": "application/json"},
-        )
-        with urllib.request.urlopen(req, timeout=60) as resp:
-            result = json.loads(resp.read().decode())
-        return result.get("content", "")
+    def _fit_generation_tokens(self, prompt: str, requested: int) -> int:
+        """Clamp output tokens so prompt plus output always fits ``n_ctx``."""
+        prompt_tokens = len(self._model.tokenize(prompt.encode("utf-8"), add_bos=True))
+        available = max(1, self.context_size - prompt_tokens)
+        fitted = max(1, min(int(requested), available))
+        if fitted < requested:
+            logger.warning(
+                "Compacted generation budget from %d to %d tokens "
+                "(prompt=%d, context=%d)",
+                requested,
+                fitted,
+                prompt_tokens,
+                self.context_size,
+            )
+        return fitted
 
     def generate(
         self,
@@ -78,28 +87,32 @@ class LocalEngine(Engine):
         max_tokens: Optional[int] = None,
     ) -> str:
         temp = temperature if temperature is not None else self._temperature
-        tokens = max_tokens or 1024
-
-        if self.use_http:
-            # Convert messages to a single prompt (simplified chat format)
-            prompt_parts = []
-            for msg in messages:
-                role = msg.get("role", "user")
-                content = msg.get("content", "")
-                prompt_parts.append(f"<|im_start|>{role}\n{content}<|im_end|>")
-            prompt_parts.append("<|im_start|>assistant\n")
-            full_prompt = "\n".join(prompt_parts)
-            return self._call_http(full_prompt, temp, tokens)
+        requested_tokens = max_tokens or 1024
 
         self._lazy_load()
         start = time.time()
-        response = self._model.create_chat_completion(
-            messages=messages,
+
+        # Build prompt manually using Gemma 3 chat template
+        prompt_parts = []
+        for msg in messages:
+            role = msg.get("role", "user")
+            content = msg.get("content", "")
+            if role == "system":
+                prompt_parts.append(f"<start_of_turn>user\n{content}<end_of_turn>")
+            else:
+                prompt_parts.append(f"<start_of_turn>{role}\n{content}<end_of_turn>")
+        prompt_parts.append("<start_of_turn>model\n")
+        full_prompt = "\n".join(prompt_parts)
+
+        tokens = self._fit_generation_tokens(full_prompt, requested_tokens)
+        response = self._model.create_completion(
+            prompt=full_prompt,
             temperature=temp,
             max_tokens=tokens,
+            stop=["<end_of_turn>", "<start_of_turn>", "</s>", "<|im_end|>"],
         )
         elapsed = time.time() - start
-        text = response.get("choices", [{}])[0].get("message", {}).get("content", "")
+        text = response.get("choices", [{}])[0].get("text", "").strip()
         logger.info("Local generation: %d chars in %.2fs", len(text), elapsed)
         return text
 
@@ -110,13 +123,11 @@ class LocalEngine(Engine):
         max_tokens: Optional[int] = None,
     ) -> str:
         temp = temperature if temperature is not None else self._temperature
-        tokens = max_tokens or 1024
-
-        if self.use_http:
-            return self._call_http(prompt, temp, tokens)
+        requested_tokens = max_tokens or 1024
 
         self._lazy_load()
         start = time.time()
+        tokens = self._fit_generation_tokens(prompt, requested_tokens)
         response = self._model.create_completion(
             prompt=prompt,
             temperature=temp,
@@ -137,10 +148,6 @@ class LocalEngine(Engine):
 
     def health_check(self) -> bool:
         try:
-            if self.use_http:
-                import urllib.request
-                with urllib.request.urlopen(f"{self.http_url}/health", timeout=5) as resp:
-                    return resp.status == 200
             self._lazy_load()
             return self._model is not None
         except Exception:

@@ -64,12 +64,12 @@ def test_content_hash_is_stable():
 
 def test_prompt_builder_creates_message_list():
     builder = PromptBuilder()
-    messages = builder.build_conversation_prompt(
+    messages = builder.build_chat_messages(
         query="What is calculus?",
         context_chunks=["Calculus is the study of change."],
-        conversation_history=[],
+        history=[],
     )
-    assert len(messages) == 3  # system + context + user
+    assert len(messages) == 4  # system + context injection + assistant ack + user
     assert messages[-1]["role"] == "user"
     assert messages[-1]["content"] == "What is calculus?"
 
@@ -80,10 +80,10 @@ def test_prompt_builder_includes_history():
         {"role": "user", "content": "What is math?"},
         {"role": "assistant", "content": "Math is the study of numbers."},
     ]
-    messages = builder.build_conversation_prompt(
+    messages = builder.build_chat_messages(
         query="Tell me more",
         context_chunks=[],
-        conversation_history=history,
+        history=history,
     )
     assert len(messages) == 4  # system + 2 history + user
 

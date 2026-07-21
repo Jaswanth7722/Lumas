@@ -79,17 +79,32 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
         storage=storage,
         conversation_service=conversation_service,
         quiz_service=quiz_service,
+        engine_manager=engine_manager,
     )
     app.include_router(router, prefix="/api")
 
-    # Serve static files (JS, CSS)
+    # Serve static files (JS, CSS) with no-cache headers
     os.makedirs(str(STATIC_DIR), exist_ok=True)
-    app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
+    class NoCacheStaticFiles(StaticFiles):
+        """StaticFiles that adds no-cache headers to prevent stale JS/CSS."""
+        async def get_response(self, path: str, scope):
+            response = await super().get_response(path, scope)
+            if path.endswith(".js") or path.endswith(".css"):
+                response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+                response.headers["Pragma"] = "no-cache"
+                response.headers["Expires"] = "0"
+            return response
+
+    app.mount("/static", NoCacheStaticFiles(directory=str(STATIC_DIR)), name="static")
 
     # Serve index.html for the root and all non-API paths (SPA-like)
     @app.get("/")
     async def serve_index():
-        return FileResponse(str(FRONTEND_DIR / "index.html"))
+        response = FileResponse(str(FRONTEND_DIR / "index.html"))
+        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        response.headers["Pragma"] = "no-cache"
+        return response
 
     return app
 

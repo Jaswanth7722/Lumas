@@ -2,32 +2,24 @@
    Lumas Desktop — Main Application
    ═══════════════════════════════════════════════════════════ */
 
-// Android exposes the same UI through a WebView.  Keep the browser default
-// while allowing the native shell to point at the desktop API or a LAN host.
-const NATIVE_LOCAL = window.AndroidConfig?.isLocalMode?.() === true
-const API = window.AndroidConfig?.apiBase?.() || window.LUMAS_API_BASE || '/api'
+const API = '/api'
 let sid = null       // current session ID
 let docId = null     // active document ID
 let docName = ''     // active document name
+let activeChunkId = null // chunk used for quiz generation
 let settingsTimer = null
 
 // ── Init ─────────────────────────────────────────────────
 
 document.addEventListener('DOMContentLoaded', () => {
-  if (NATIVE_LOCAL) {
-    sid = 'android-local'
-    document.getElementById('engine-badge').textContent = 'local'
-    setStatus('Offline tutor ready')
-    document.querySelectorAll('[data-view="documents"], [data-view="quizzes"]').forEach(el => { el.hidden = true })
-  } else {
-    loadSessions()
-    loadDocuments()
-    loadSettings()
-    setupNetworkMonitor()
-  }
+  loadSessions()
+  loadDocuments()
+  loadSettings()
+  setupNetworkMonitor()
   setupDragDrop()
   setupChatInput()
   setupCopyButtons()
+  setupQuizInteractions()
 })
 
 // ── Toast Notifications ──────────────────────────────────
@@ -104,7 +96,6 @@ function esc(s) {
 // ── View Switching ───────────────────────────────────────
 
 function switchView(view) {
-  if (NATIVE_LOCAL && (view === 'documents' || view === 'quizzes')) return
   document.querySelectorAll('.view').forEach(el => el.classList.remove('active'))
   document.querySelectorAll('.nav-btn').forEach(el => el.classList.remove('active'))
   document.getElementById('view-' + view)?.classList.add('active')
@@ -250,9 +241,7 @@ async function send() {
   sendBtn.disabled = true
   el.disabled = true
 
-  if (NATIVE_LOCAL) {
-    sid = sid || 'android-local'
-  } else if (!sid) {
+  if (!sid) {
     try {
       const s = await api('POST', '/sessions', {})
       sid = s.id
@@ -276,22 +265,25 @@ async function send() {
 
   setStatus('Thinking…', true)
   try {
-    const r = NATIVE_LOCAL
-      ? JSON.parse(window.AndroidConfig.chat(query))
-      : await api('POST', '/chat', {
-          session_id: sid,
-          query: query,
-          document_id: docId || undefined
-        })
-    if (!r.ok) throw new Error(r.error || 'Local tutor request failed')
+    const r = await api('POST', '/chat', {
+      session_id: sid,
+      query: query,
+      document_id: docId || undefined
+    })
     hideTypingIndicator()
     appendMessage('assistant', r.response)
     setStatus('Ready')
   } catch (e) {
     hideTypingIndicator()
-    const errMsg = e.message.includes('Failed to fetch') || e.message.includes('NetworkError')
-      ? 'Cannot reach the server. Check your connection and try again.'
-      : e.message
+    const msg = e.message
+    let errMsg
+    if (msg.includes('Failed to fetch') || msg.includes('NetworkError')) {
+      errMsg = 'Connection lost — the request took too long. Please try again.'
+    } else if (msg.includes('timeout') || msg.includes('timed out')) {
+      errMsg = 'Request timed out. The model is generating — try a simpler question.'
+    } else {
+      errMsg = msg
+    }
     appendMessage('assistant', '⚠️ ' + errMsg)
     setStatus('Error', false)
   } finally {
@@ -392,9 +384,10 @@ function renderMessages(msgs) {
 
 // ── Document Context ────────────────────────────────────
 
-function setDoc(id, title) {
+function setDoc(id, title, chunkId = null) {
   docId = id
   docName = title
+  activeChunkId = chunkId
   const ind = document.getElementById('doc-indicator')
   ind.hidden = false
   document.getElementById('doc-name').textContent = title
@@ -403,6 +396,7 @@ function setDoc(id, title) {
 function clearDoc() {
   docId = null
   docName = ''
+  activeChunkId = null
   document.getElementById('doc-indicator').hidden = true
 }
 
@@ -421,10 +415,6 @@ function setupDragDrop() {
 }
 
 async function uploadFile(file) {
-  if (NATIVE_LOCAL) {
-    toast('PDF retrieval is available when connected to the Lumas API', 'info')
-    return
-  }
   if (!file || !file.name.toLowerCase().endsWith('.pdf')) {
     toast('Please upload a PDF file.', 'error')
     return
@@ -437,12 +427,14 @@ async function uploadFile(file) {
   try {
     const res = await fetch(API + '/documents/upload', { method: 'POST', body: fd })
     if (!res.ok) {
-      const err = await res.text().catch(() => res.statusText)
-      throw new Error(err)
+      const raw = await res.text().catch(() => res.statusText)
+      let detail = raw
+      try { detail = JSON.parse(raw).detail || raw } catch { /* plain-text error */ }
+      throw new Error(detail)
     }
     const doc = await res.json()
     addDocumentCard(doc)
-    setDoc(doc.id, doc.title)
+    setDoc(doc.id, doc.title, doc.chunks?.[0]?.id || null)
     toast(`"${doc.title}" uploaded (${doc.chunks.length} chunks)`, 'success', 3000)
     switchView('chat')
   } catch (e) {
@@ -473,6 +465,7 @@ function addDocumentCard(doc) {
   card.className = 'doc-card'
   card.dataset.docId = doc.id
   card.dataset.docTitle = doc.title
+  card.dataset.docChunkId = doc.chunks?.[0]?.id || ''
   card.innerHTML = `
     <div class="doc-card-info">
       <span class="doc-card-icon">📄</span>
@@ -495,15 +488,16 @@ document.getElementById('documents-list').addEventListener('click', e => {
   if (!card) return
   const id = card.dataset.docId
   const title = card.dataset.docTitle
+  const chunkId = card.dataset.docChunkId || null
   if (e.target.classList.contains('btn-use')) {
-    useDoc(id, title)
+    useDoc(id, title, chunkId)
   } else if (e.target.classList.contains('btn-delete')) {
     deleteDoc(id)
   }
 })
 
-function useDoc(id, title) {
-  setDoc(id, title)
+function useDoc(id, title, chunkId) {
+  setDoc(id, title, chunkId)
   toast(`Using "${title}"`, 'info', 2000)
   switchView('chat')
 }
@@ -533,16 +527,29 @@ async function generateQuiz() {
     toast('Select a document first (Documents view → Use)', 'warning')
     return
   }
-  if (!sid) {
-    toast('Start a chat session first', 'warning')
+  if (!activeChunkId) {
+    toast('This document has no usable text chunk', 'warning')
     return
+  }
+  if (!sid) {
+    try {
+      const session = await api('POST', '/sessions', {})
+      sid = session.id
+      document.getElementById('btn-delete-session').hidden = false
+      loadSessions()
+    } catch (e) {
+      toast('Create a session first: ' + e.message, 'error')
+      return
+    }
   }
 
   loading(true, 'Generating quiz…')
+  const button = document.getElementById('btn-gen-quiz')
+  button.disabled = true
   try {
     const r = await api('POST', '/quizzes/generate', {
       session_id: sid,
-      chunk_id: docId,
+      chunk_id: activeChunkId,
       num_questions: 3
     })
     toast('Quiz generated! Check the Quizzes view.', 'success', 3000)
@@ -551,6 +558,40 @@ async function generateQuiz() {
     toast('Failed to generate quiz: ' + e.message, 'error')
   } finally {
     loading(false)
+    button.disabled = false
+  }
+}
+
+function setupQuizInteractions() {
+  document.getElementById('quiz-content').addEventListener('click', e => {
+    const option = e.target.closest('.quiz-option[data-quiz-id]')
+    if (option) answerQuizOption(option)
+  })
+  document.getElementById('quiz-content').addEventListener('keydown', e => {
+    if (e.key !== 'Enter' && e.key !== ' ') return
+    const option = e.target.closest('.quiz-option[data-quiz-id]')
+    if (!option) return
+    e.preventDefault()
+    answerQuizOption(option)
+  })
+}
+
+async function answerQuizOption(option) {
+  if (option.dataset.answered === 'true') return
+  option.dataset.answered = 'true'
+  try {
+    await api('POST', '/quizzes/answer', {
+      quiz_id: option.dataset.quizId,
+      question_index: Number(option.dataset.questionIndex),
+      student_answer: option.dataset.optionIndex,
+      // Kept for API compatibility; the server validates against stored quiz data.
+      correct_index: 0
+    })
+    toast('Answer saved', 'success', 1500)
+    await loadQuizResults()
+  } catch (e) {
+    delete option.dataset.answered
+    toast('Could not save answer: ' + e.message, 'error')
   }
 }
 
@@ -593,7 +634,8 @@ async function loadQuizResults() {
                 if (oi === q.correct_index) { cls += ' correct'; icon = '✓ ' }
                 else if (oi === parseInt(answer.student_answer) && !answer.is_correct) { cls += ' wrong'; icon = '✗ ' }
               }
-              return `<div class="${cls}">${icon}${esc(opt)}</div>`
+              const answerAttrs = answer ? 'data-answered="true"' : `data-quiz-id="${esc(r.quiz_id)}" data-question-index="${qi}" data-option-index="${oi}" role="button" tabindex="0"`
+              return `<div class="${cls}" ${answerAttrs}>${icon}${esc(opt)}</div>`
             }).join('')}
           </div>`
         }).join('')}`
@@ -625,8 +667,62 @@ async function loadSettings() {
     }
     document.getElementById('temp-val').textContent = s('temp-range').value
     document.getElementById('engine-badge').textContent = s('engine-select').value
+    loadModelStatus()
   } catch (e) {
     // Settings endpoint might not be available
+  }
+}
+
+let modelPollTimer = null
+
+function formatModelBytes(value) {
+  if (!value) return '0 MB'
+  return (value / (1024 * 1024)).toFixed(0) + ' MB'
+}
+
+async function loadModelStatus() {
+  const button = document.getElementById('model-download-btn')
+  const status = document.getElementById('model-download-status')
+  if (!button || !status) return
+  try {
+    const result = await api('GET', '/models/status')
+    if (result.state === 'ready' && result.available) {
+      button.textContent = 'Model installed'
+      button.disabled = true
+      status.textContent = result.filename + ' is ready for offline use'
+    } else if (result.state === 'downloading') {
+      button.textContent = 'Installing...'
+      button.disabled = true
+      status.textContent = result.total_bytes
+        ? `${result.progress}% (${formatModelBytes(result.downloaded_bytes)} / ${formatModelBytes(result.total_bytes)})`
+        : `Downloading (${formatModelBytes(result.downloaded_bytes)})`
+      if (!modelPollTimer) modelPollTimer = setInterval(loadModelStatus, 1000)
+    } else if (result.state === 'error') {
+      button.textContent = 'Retry install'
+      button.disabled = false
+      status.textContent = result.error || 'Model installation failed'
+      if (modelPollTimer) { clearInterval(modelPollTimer); modelPollTimer = null }
+    } else {
+      button.textContent = 'Install model'
+      button.disabled = false
+      status.textContent = 'Gemma 3 1B is not installed yet'
+    }
+  } catch (e) {
+    status.textContent = 'Model installer unavailable'
+  }
+}
+
+async function downloadModel() {
+  const button = document.getElementById('model-download-btn')
+  if (!button) return
+  button.disabled = true
+  try {
+    await api('POST', '/models/download', {})
+    await loadModelStatus()
+    toast('Model installation started', 'info', 2500)
+  } catch (e) {
+    button.disabled = false
+    toast(e.message, 'error')
   }
 }
 

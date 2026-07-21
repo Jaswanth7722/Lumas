@@ -8,11 +8,19 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import dataclass, field
+import sys
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, Optional
 
 EngineType = Literal["local", "online"]
+
+
+def runtime_root() -> Path:
+    """Return the directory used for writable desktop runtime data."""
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parents[2]
 
 
 @dataclass
@@ -24,6 +32,7 @@ class Settings:
 
     # Model
     model_path: str = ""
+    model_url: str = "https://huggingface.co/unsloth/gemma-3-1b-it-GGUF/resolve/main/gemma-3-1b-it-Q4_K_M.gguf?download=true"
     context_size: int = 2048
     temperature: float = 0.7
 
@@ -54,7 +63,8 @@ class Settings:
           2. Config file
           3. Defaults
         """
-        cfg_path = config_path or os.environ.get("LUMAS_CONFIG", "config.json")
+        project_config = runtime_root() / "config.json"
+        cfg_path = config_path or os.environ.get("LUMAS_CONFIG") or str(project_config)
 
         # Start with defaults
         settings = cls()
@@ -93,6 +103,13 @@ class Settings:
         if settings.engine == "online":
             settings.openai_api_key = settings.openai_api_key or os.environ.get("OPENAI_API_KEY", "")
 
+        # Frozen releases resolve relative data paths beside the executable.
+        if getattr(sys, "frozen", False):
+            for attr_name in ("model_path", "sqlite_path"):
+                value = Path(getattr(settings, attr_name)).expanduser()
+                if not value.is_absolute():
+                    setattr(settings, attr_name, str(runtime_root() / value))
+
         return settings
 
     def save(self, path: Optional[str] = None) -> None:
@@ -101,6 +118,7 @@ class Settings:
         data = {
             "engine": self.engine,
             "model_path": self.model_path,
+            "model_url": self.model_url,
             "context_size": self.context_size,
             "temperature": self.temperature,
             "embedding_model": self.embedding_model,

@@ -80,3 +80,24 @@ def test_empty_retrieval():
         assert results == []
     finally:
         os.unlink(db_path)
+
+
+def test_retrieval_omits_unrelated_chunks():
+    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+        db_path = f.name
+    try:
+        storage = Storage(db_path=db_path)
+        doc_id = storage.add_document("Test", "test.pdf")
+        storage.add_chunks([
+            {"id": "relevant", "document_id": doc_id, "position": 0,
+             "content": "The water cycle includes evaporation and condensation.", "metadata": {}},
+            {"id": "unrelated", "document_id": doc_id, "position": 1,
+             "content": "The Roman empire used roads and aqueducts.", "metadata": {}},
+        ])
+
+        results = RetrievalService(storage=storage).retrieve(
+            "how does evaporation work", top_k=5, document_id=doc_id
+        )
+        assert [chunk["id"] for chunk in results] == ["relevant"]
+    finally:
+        os.unlink(db_path)

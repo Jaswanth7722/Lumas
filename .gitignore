@@ -1,11 +1,44 @@
-nul
-test_debug.db
-.agents/
-/pytest_cache/
-lumas.egg-info/
-
-models/
-Lumas_data/
-.hf_cache/
+# ── Python ────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+*.egg
 .pytest_cache/
+dist/
+build/
+release/
+*.exe
 *.db
+
+# ── IDE / Editor ─────────────────────────────────────
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# ── OS ────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+
+# ── Lumas Data ────────────────────────────────────────
+lumas_data/
+test_debug.db
+nul
+.agents/
+
+# ── Models ────────────────────────────────────────────
+/models/
+.hf_cache/
+
+# ── Android generated artifacts (future target) ───────
+android/.gradle/
+android/build/
+android/app/build/
+android/app/.cxx/
+android/app/release/
+android/local.properties
+android/.idea/
+android/*.keystore
+android/*.jks

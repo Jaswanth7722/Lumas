@@ -32,6 +32,7 @@ class Storage:
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
         try:
+            conn.execute("PRAGMA foreign_keys = ON")
             yield conn
             conn.commit()
         except Exception:
@@ -140,8 +141,26 @@ class Storage:
 
     def delete_document(self, doc_id: str) -> None:
         with self._conn() as conn:
+            # Remove dependent records before the chunks they reference. This
+            # keeps deletion correct for both fresh databases and databases
+            # opened with foreign-key enforcement enabled.
+            conn.execute(
+                """DELETE FROM quiz_answers
+                   WHERE quiz_id IN (
+                       SELECT id FROM quizzes
+                       WHERE chunk_id IN (SELECT id FROM chunks WHERE document_id = ?)
+                   )""",
+                (doc_id,),
+            )
+            conn.execute(
+                "DELETE FROM quizzes WHERE chunk_id IN (SELECT id FROM chunks WHERE document_id = ?)",
+                (doc_id,),
+            )
+            conn.execute(
+                "DELETE FROM embeddings WHERE chunk_id IN (SELECT id FROM chunks WHERE document_id = ?)",
+                (doc_id,),
+            )
             conn.execute("DELETE FROM chunks WHERE document_id = ?", (doc_id,))
-            conn.execute("DELETE FROM embeddings WHERE chunk_id IN (SELECT id FROM chunks WHERE document_id = ?)", (doc_id,))
             conn.execute("DELETE FROM documents WHERE id = ?", (doc_id,))
 
     # ── Chunks ─────────────────────────────────────────────────

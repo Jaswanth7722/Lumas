@@ -14,7 +14,7 @@ import os
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, UploadFile, File
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from ..services.conversation import ConversationService
 from ..services.quiz import QuizService
@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 
 class ChatRequest(BaseModel):
     session_id: str
-    query: str
+    query: str = Field(min_length=1, max_length=12000)
     document_id: Optional[str] = None
     temperature: Optional[float] = None
 
@@ -39,7 +39,7 @@ class ChatResponse(BaseModel):
 
 
 class CreateSessionRequest(BaseModel):
-    engine_used: str = "local"
+    engine_used: Optional[str] = None
 
 
 class SessionResponse(BaseModel):
@@ -52,14 +52,14 @@ class SessionResponse(BaseModel):
 class QuizGenerateRequest(BaseModel):
     session_id: str
     chunk_id: str
-    num_questions: int = 5
+    num_questions: int = Field(default=5, ge=1, le=10)
 
 
 class QuizAnswerRequest(BaseModel):
     quiz_id: str
-    question_index: int
+    question_index: int = Field(ge=0)
     student_answer: str
-    correct_index: int
+    correct_index: int = Field(ge=0, le=3)
 
 
 class SettingUpdate(BaseModel):
@@ -71,22 +71,44 @@ class DocumentResponse(BaseModel):
     title: str
     source_filename: str
     created_at: float
-    chunks: list[dict] = []
+    chunks: list[dict] = Field(default_factory=list)
 
 
 def create_router(
     storage: Storage,
     conversation_service: ConversationService,
     quiz_service: QuizService,
+    engine_manager=None,
+    model_manager=None,
 ) -> APIRouter:
     """Create the FastAPI router with all endpoints."""
     router = APIRouter()
+    model_manager = model_manager or getattr(engine_manager, "model_manager", None)
 
     # ── Health ─────────────────────────────────────────────────
 
     @router.get("/health")
     async def health():
-        return {"status": "ok"}
+        result = {"status": "ok"}
+        if engine_manager is not None:
+            result.update({
+                "engine": engine_manager.settings.engine,
+                "model_path": engine_manager.settings.model_path,
+                "model_configured": bool(engine_manager.settings.model_path),
+            })
+        return result
+
+    @router.get("/models/status")
+    async def model_status():
+        if model_manager is None:
+            raise HTTPException(status_code=503, detail="Model installer is unavailable")
+        return model_manager.status()
+
+    @router.post("/models/download", status_code=202)
+    async def download_model():
+        if model_manager is None:
+            raise HTTPException(status_code=503, detail="Model installer is unavailable")
+        return model_manager.start_download()
 
     # ── Documents ─────────────────────────────────────────────
 
@@ -97,16 +119,29 @@ def create_router(
             raise HTTPException(status_code=400, detail="Only PDF files are supported")
 
         import tempfile
+        max_upload_bytes = 25 * 1024 * 1024
         tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
+        tmp_path = tmp.name
+        tmp.close()
         try:
             content = await file.read()
-            tmp.write(content)
-            tmp.close()
+            if len(content) > max_upload_bytes:
+                raise HTTPException(status_code=413, detail="PDF must be smaller than 25 MB")
+            with open(tmp_path, "wb") as output:
+                output.write(content)
 
             title = os.path.splitext(file.filename)[0]
             doc_id = storage.add_document(title=title, source_filename=file.filename)
 
-            chunks = process_document(tmp.name, doc_id)
+            try:
+                chunks = process_document(tmp.name, doc_id)
+            except Exception as exc:
+                storage.delete_document(doc_id)
+                logger.warning("PDF processing failed for %s: %s", file.filename, exc)
+                raise HTTPException(status_code=422, detail="Could not extract readable text from this PDF") from exc
+            if not chunks:
+                storage.delete_document(doc_id)
+                raise HTTPException(status_code=422, detail="The PDF did not contain extractable text")
             storage.add_chunks(chunks)
 
             try:
@@ -120,6 +155,11 @@ def create_router(
                     blob = struct.pack(f"{len(emb)}f", *emb)
                     emb_tuples.append((chunk["id"], blob))
                 storage.add_embeddings(emb_tuples)
+                # Reuse the already-loaded indexer for the next query.  This
+                # avoids loading MiniLM a second time in RetrievalService.
+                if hasattr(conversation_service, "retrieval"):
+                    conversation_service.retrieval.embedding_provider = embedder
+                    conversation_service.retrieval._embedding_failed = False
                 logger.info("Stored %d embeddings", len(emb_tuples))
             except Exception as e:
                 logger.warning("Embedding generation skipped: %s", e)
@@ -135,7 +175,7 @@ def create_router(
             )
         finally:
             try:
-                os.unlink(tmp.name)
+                os.unlink(tmp_path)
             except Exception:
                 pass
 
@@ -180,7 +220,10 @@ def create_router(
 
     @router.post("/sessions", response_model=SessionResponse)
     async def create_session(body: CreateSessionRequest):
-        session_id = storage.create_session(engine_used=body.engine_used)
+        engine_used = body.engine_used
+        if not engine_used:
+            engine_used = engine_manager.settings.engine if engine_manager is not None else "local"
+        session_id = storage.create_session(engine_used=engine_used)
         session = storage.get_session(session_id)
         if not session:
             raise HTTPException(status_code=500, detail="Failed to create session")
@@ -258,29 +301,38 @@ def create_router(
     @router.post("/quizzes/generate")
     async def generate_quiz(body: QuizGenerateRequest):
         """Generate a quiz from a document chunk."""
+        if not storage.get_session(body.session_id):
+            raise HTTPException(status_code=404, detail="Session not found")
+        if not storage.get_chunk(body.chunk_id):
+            raise HTTPException(status_code=404, detail="Chunk not found")
         quiz = quiz_service.generate_quiz(
             session_id=body.session_id,
             chunk_id=body.chunk_id,
             num_questions=body.num_questions,
         )
         if not quiz:
-            raise HTTPException(status_code=500, detail="Quiz generation failed")
+            raise HTTPException(status_code=400, detail="Quiz generation failed - model could not produce valid questions. Try again or use a different chunk.")
         return quiz
 
     @router.post("/quizzes/answer")
     async def answer_quiz(body: QuizAnswerRequest):
         """Submit an answer to a quiz question."""
-        result = quiz_service.answer_question(
-            quiz_id=body.quiz_id,
-            question_index=body.question_index,
-            student_answer=body.student_answer,
-            correct_index=body.correct_index,
-        )
+        try:
+            result = quiz_service.answer_question(
+                quiz_id=body.quiz_id,
+                question_index=body.question_index,
+                student_answer=body.student_answer,
+                correct_index=body.correct_index,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         return result
 
     @router.get("/sessions/{session_id}/quiz-results")
     async def get_quiz_results(session_id: str):
         """Get all quiz results for a session."""
+        if not storage.get_session(session_id):
+            raise HTTPException(status_code=404, detail="Session not found")
         return quiz_service.get_quiz_results(session_id)
 
     # ── Chunks ────────────────────────────────────────────────
@@ -303,6 +355,11 @@ def create_router(
 
     @router.put("/settings/{key}")
     async def set_setting(key: str, body: SettingUpdate):
+        if engine_manager is not None:
+            try:
+                engine_manager.update_setting(key, body.value)
+            except (TypeError, ValueError) as exc:
+                raise HTTPException(status_code=400, detail=f"Invalid setting {key}: {exc}") from exc
         storage.set_setting(key, body.value)
         return {"key": key, "value": body.value}
 

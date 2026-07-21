@@ -166,6 +166,14 @@
             <label for="model-path">Model Path (local only)</label>
             <input type="text" id="model-path" placeholder="path/to/model.gguf" onchange="saveSetting('model_path', this.value)">
           </div>
+
+          <div class="setting-group model-install-group">
+            <label>Local Gemma model</label>
+            <div class="model-install-row">
+              <button class="btn-sm" id="model-download-btn" onclick="downloadModel()">Install model</button>
+              <span id="model-download-status" class="setting-hint">Checking model...</span>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -191,6 +199,6 @@
   </div>
 </div>
 
-<script src="static/app.js"></script>
+<script src="/static/app.js?v=3"></script>
 </body>
 </html>

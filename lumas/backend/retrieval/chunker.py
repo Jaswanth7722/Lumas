@@ -59,7 +59,7 @@ def clean_text(text: str) -> str:
     return '\n'.join(cleaned)
 
 
-def chunk_text(text: str, max_chars: int = 2000, overlap: int = 100) -> list[dict]:
+def chunk_text(text: str, max_chars: int = 1400, overlap: int = 120) -> list[dict]:
     """Split text into chunks based on structure (headings/paragraphs).
 
     Args:
@@ -155,7 +155,7 @@ def chunk_text(text: str, max_chars: int = 2000, overlap: int = 100) -> list[dic
     return chunks
 
 
-def process_document(path: str, document_id: str, max_chars: int = 2000) -> list[dict]:
+def process_document(path: str, document_id: str, max_chars: int = 1400) -> list[dict]:
     """Full document processing pipeline: extract → clean → chunk.
 
     Returns chunks ready for storage with document_id set.

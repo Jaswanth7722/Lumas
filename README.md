@@ -1,4 +1,5 @@
 # Lumas
+<<<<<<< HEAD
 
 Lumas is an offline-first AI study companion for students who need useful
 learning support even when connectivity is unreliable. The hackathon
@@ -158,3 +159,6 @@ The local model is intentionally not loaded during unit tests.
 - MiniLM embeddings require a local model cache; lexical retrieval remains
   available without it.
 - Android has no runnable source, Gradle project, NDK, JNI, or APK by design.
+=======
+Lumas is an AI-powered learning platform that enables students to learn from PDFs through intelligent conversations, personalized explanations, summaries, and quiz generation using local language models.
+>>>>>>> 9e3f37e291904d4fb7af031b52ec9c348c008c53

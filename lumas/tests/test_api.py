@@ -118,3 +118,16 @@ def test_invalid_runtime_setting_is_rejected():
         assert response.status_code == 400
     finally:
         os.unlink(db_path)
+
+
+def test_runtime_settings_are_available_to_the_desktop_ui():
+    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as db_file:
+        db_path = db_file.name
+    try:
+        client, _ = build_client(db_path)
+        for key in ("engine", "temperature", "context_size", "model_path"):
+            response = client.get(f"/api/settings/{key}")
+            assert response.status_code == 200
+            assert response.json()["key"] == key
+    finally:
+        os.unlink(db_path)

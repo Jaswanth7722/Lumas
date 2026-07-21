@@ -15,7 +15,7 @@ import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 
 from .api.routes import create_router
 from .config import Settings
@@ -105,6 +105,11 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
         response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
         response.headers["Pragma"] = "no-cache"
         return response
+
+    @app.get("/favicon.ico", include_in_schema=False)
+    async def favicon():
+        """Avoid noisy browser 404s when no custom favicon is bundled."""
+        return Response(status_code=204)
 
     return app
 

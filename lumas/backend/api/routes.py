@@ -348,6 +348,13 @@ def create_router(
 
     @router.get("/settings/{key}")
     async def get_setting(key: str):
+        # Runtime settings are owned by EngineManager.  The database is kept
+        # as a compatibility fallback for older installations that persisted
+        # a setting before the runtime configuration was introduced.
+        public_runtime_settings = {"engine", "temperature", "context_size", "model_path"}
+        if engine_manager is not None and key in public_runtime_settings:
+            settings = engine_manager.settings
+            return {"key": key, "value": getattr(settings, key)}
         value = storage.get_setting(key)
         if value is None:
             raise HTTPException(status_code=404, detail="Setting not found")
